@@ -109,13 +109,13 @@ Parameters:
   EbInstanceType:
     Description: The instance type for Elastic Beanstalk
     Type: String
-    Default: t3.small
+    Default: t4g.small
     ConstraintDescription: Instance type not supported
     AllowedValues:
-      - t3.small
-      - t3.medium
-      - t3.large
-      - t3.xlarge
+      - t4g.small
+      - t4g.medium
+      - t4g.large
+      - t4g.xlarge
       - r5dn.xlarge
       - r5dn.2xlarge
 
@@ -141,6 +141,31 @@ Parameters:
     MaxValue: 20
     Default: 6
     ConstraintDescription: Specify a number between 1 - 20
+
+  GitHubOwner:
+    Type: String
+    Default: bsg-cloud
+    Description: The username or org that owns the repo
+
+  GitHubRepo:
+    Type: String
+    Default: poc-gc-pbs
+    Description: The name of the repo as it appears in Github. ex) https://github.com/[GitHubRepo]
+
+  GitHubBranch:
+    Type: String
+    Description: The branch to pull
+    Default: main
+
+  GitHubTokenSecretName:
+    Type: String
+    Description: The name of the Secrets Manager secret that contains a GitHub personal access token
+    Default: efadminPassword
+
+  GitHubTokenSecretKeyName:
+    Type: String
+    Description: The JSON key name of the Secrets Manager value
+    Default: PersonalAccessToken
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -181,6 +206,15 @@ Metadata:
         Parameters:
           - ELBIngressPort
           - SSLCertificateArn
+      - Label:
+          default: CI/CD 
+        Parameters:
+          - GitHubOwner
+          - GitHubRepo
+          - GitHubBranch
+          - GitHubTokenSecretName
+          - GitHubTokenSecretKeyName
+
     ParameterLabels:
       AvailabilityZone1:
         default: Availability Zone 1
@@ -228,6 +262,8 @@ Conditions:
 Resources:
 
   VpcStack:
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: https://rnd-cfn-repository-20221009.s3.ap-northeast-2.amazonaws.com/cfn-bastioin-eb/templates/vpc.cfn.yml 
@@ -240,6 +276,8 @@ Resources:
         SingleNatGateway: !If [ IsProd, false, true ]
 
   BastionStack:
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: https://rnd-cfn-repository-20221009.s3.ap-northeast-2.amazonaws.com/cfn-bastioin-eb/templates/bastion.cfn.yml 
@@ -248,9 +286,10 @@ Resources:
         KeyName: !Ref KeyName
         LogRetentionInDays: !Ref LogRetentionInDays
         MFA: !Ref MFA
-    DependsOn: VpcStack
 
   ElasticBeanstalkStack:
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: https://rnd-cfn-repository-20221009.s3.ap-northeast-2.amazonaws.com/cfn-bastioin-eb/templates/elastic-beanstalk.cfn.yml 
@@ -262,9 +301,15 @@ Resources:
         AppS3Bucket: !Ref AppS3Bucket
         AppS3Key: !Ref AppS3Key
         EC2KeyPairName: !Ref EC2KeyPairName
+        ELBIngressPort: !Ref ELBIngressPort
         DevInstanceType: !Ref EbInstanceType
         ProdInstanceType: !Ref EbInstanceType
         SSLCertificateArn: !Ref SSLCertificateArn
+        GitHubOwner: !Ref GitHubOwner
+        GitHubRepo: !Ref GitHubRepo
+        GitHubBranch: !Ref GitHubBranch
+        GitHubTokenSecretName: !Ref GitHubTokenSecretName
+        GitHubTokenSecretKeyName: !Ref GitHubTokenSecretKeyName
         AutoScalingMinInstanceCount: !Ref AutoScalingMinInstanceCount
         AutoScalingMaxInstanceCount: !Ref AutoScalingMaxInstanceCount
 

@@ -5,13 +5,43 @@ Description:  SASKV5N Elastic Beanstalk
 # App stack creation prerequisites:  first create a VPC stack, then a DB stack.
 
 Parameters:
+  GitHubOwner:
+    Type: String
+    Description: The username or org that owns the repo
 
+  GitHubRepo:
+    Type: String
+    Description: The name of the repo as it appears in Github. ex) https://github.com/[GitHubRepo]
+
+  GitHubBranch:
+    Type: String
+    Description: The branch to pull
+    Default: main
+
+  GitHubTokenSecretName:
+    Type: String
+    Description: The name of the Secrets Manager secret that contains a GitHub personal access token
+    Default: Github
+
+  GitHubTokenSecretKeyName:
+    Type: String
+    Description: The JSON key name of the Secrets Manager value
+    Default: PersonalAccessToken
+    
   ApplicationName:
     Description: Name of your application
     Type: String
     MinLength: 1
     MaxLength: 255
     AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+
+  ELBIngressPort:
+    Description: The ELB ingress port used by security groups
+    Type: Number
+    MinValue: 0
+    MaxValue: 65535
+    ConstraintDescription: TCP ports must be between 0 - 65535
+    Default: 80
 
   StackType:
     Description: node, rails, python, python3 or spring
@@ -157,9 +187,6 @@ Resources:
       ApplicationName: !Ref Application
       TemplateName: !Ref ConfigurationTemplate
       VersionLabel: !Ref ApplicationVersion
-    DependsOn:
-      - ConfigurationTemplate
-      - ApplicationVersion
 
   # The configuration template contains environment parameters such as those
   # that relate to the autoscaling group (e.g. size, triggers), placement of
@@ -288,22 +315,19 @@ Resources:
 
       - Namespace: !Sub
         - "aws:elbv2:listener:${ListenPort}"
-        - ListenPort:
-            "Fn::ImportValue": !Sub "${NetworkStackName}-ELBIngressPort"
+        - ListenPort: !Ref ELBIngressPort
         OptionName: Protocol
         Value: !If [ TlsEnabled, HTTPS, HTTP ]
 
       - Namespace: !Sub
         - "aws:elbv2:listener:${ListenPort}"
-        - ListenPort:
-            "Fn::ImportValue": !Sub "${NetworkStackName}-ELBIngressPort"
+        - ListenPort: !Ref ELBIngressPort
         OptionName: Rules
         Value: default
 
       - Namespace: !Sub
         - "aws:elbv2:listener:${ListenPort}"
-        - ListenPort:
-            "Fn::ImportValue": !Sub "${NetworkStackName}-ELBIngressPort"
+        - ListenPort: !Ref ELBIngressPort
         OptionName: SSLCertificateArns
         Value: !Ref SSLCertificateArn
 
@@ -357,6 +381,126 @@ Resources:
       Path: /
       Roles:
       - !Ref AppRole
+
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - codepipeline.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: codepipeline-service
+        PolicyDocument:
+          Statement:
+          - Action:
+            - codecommit:GetBranch
+            - codecommit:GetCommit
+            - codecommit:UploadArchive
+            - codecommit:GetUploadArchiveStatus
+            - codecommit:CancelUploadArchive
+            Resource: "*"
+            Effect: Allow
+          - Action:
+            - s3:GetObject
+            - s3:GetObjectVersion
+            - s3:GetBucketVersioning
+            Resource: "*"
+            Effect: Allow
+          - Action:
+            - s3:PutObject
+            Resource:
+            - arn:aws:s3:::codepipeline*
+            - arn:aws:s3:::elasticbeanstalk*
+            Effect: Allow
+          - Action:
+            - codedeploy:CreateDeployment
+            - codedeploy:GetApplicationRevision
+            - codedeploy:GetDeployment
+            - codedeploy:GetDeploymentConfig
+            - codedeploy:RegisterApplicationRevision
+            Resource: "*"
+            Effect: Allow
+          - Action:
+            - elasticbeanstalk:*
+            - ec2:*
+            - elasticloadbalancing:*
+            - autoscaling:*
+            - cloudwatch:*
+            - s3:*
+            - sns:*
+            - cloudformation:*
+            - rds:*
+            - sqs:*
+            - ecs:*
+            - iam:PassRole
+            Resource: "*"
+            Effect: Allow
+          - Action:
+            - lambda:InvokeFunction
+            - lambda:ListFunctions
+            Resource: "*"
+            Effect: Allow
+          Version: '2012-10-17'
+
+  ArtifactBucket:
+    UpdateReplacePolicy: Delete 
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+
+  CodePipelineStack:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn:
+        Fn::Join:
+        - ''
+        - - 'arn:aws:iam::'
+          - Ref: AWS::AccountId
+          - ":role/"
+          - Ref: CodePipelineRole
+      Stages:
+      - Name: Source
+        Actions:
+        - InputArtifacts: []
+          Name: Source
+          ActionTypeId:
+            Category: Source
+            Owner: ThirdParty
+            Version: '1'
+            Provider: Github
+          OutputArtifacts:
+          - Name: SourceArtifact
+          Configuration:
+            Owner: !Ref GitHubOwner
+            Repo: !Ref GitHubRepo
+            Branch: !Ref GitHubBranch
+            OAuthToken: !Sub '{{resolve:secretsmanager:${GitHubTokenSecretName}:SecretString:${GitHubTokenSecretKeyName}}}'
+          RunOrder: 1
+
+      - Name: Deploy
+        Actions:
+        - InputArtifacts:
+          - Name: SourceArtifact
+          Name: EbApp
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Version: '1'
+            Provider: ElasticBeanstalk
+          OutputArtifacts: []
+          Configuration:
+            ApplicationName: !Ref Application
+            EnvironmentName: !Ref Environment
+          RunOrder: 1
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+
 
 Outputs:
 

@@ -3,6 +3,9 @@
 ## 사전 준비
 1. AWS 콘솔 > S3 > Create bucket: cfn 템플릿 파일을 업로드합니다.(직접 템플릿 파일의 S3 웹 주소를 호출해서 생성하는 경우에는 불필요)
 1. AWS 콘솔 > Seoul Region > EC2 > Network & Security > Key Pairs > Create key pair
+1. Route53과 ACM에서 TLS 인증서 ARN 값 복사
+1. App 자동 배포를 위해 Github Owner, Repo, Branch를 확인
+1. Secret Manager에서 Github 이름으로 `PersonalAccessToken`의 Key 이름과 github personal access token을 Value로 저장합니다.
 
 ## 구성도
 
