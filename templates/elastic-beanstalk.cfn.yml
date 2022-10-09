@@ -21,6 +21,7 @@ Parameters:
     AllowedValues:
       - node
       - rails
+      - php
       - spring
       - python
       - python3
@@ -42,29 +43,6 @@ Parameters:
     MinLength: 1
     MaxLength: 255
     AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
-
-  DatabaseStackName:
-    Description: Name of an active CloudFormation stack of database resources
-    Type: String
-    MinLength: 1
-    MaxLength: 255
-    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
-
-  DatabaseName:
-    Description: Database name (schema).
-    Type: String
-    MinLength: 1
-    MaxLength: 255
-    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
-
-  DatabasePassword:
-    NoEcho: true
-    Type: String
-    Description: Database admin account password
-    MinLength: 6
-    MaxLength: 41
-    AllowedPattern: "[a-zA-Z0-9]*"
-    ConstraintDescription: Password must contain only alphanumeric characters
 
   AppS3Bucket:
     Description: S3 Bucket containing your application package.
@@ -134,6 +112,8 @@ Mappings:
       stackName: 64bit Amazon Linux 2018.03 v2.8.3 running Ruby 2.4 (Puma)
     spring:
       stackName: 64bit Amazon Linux 2018.03 v3.0.3 running Tomcat 8 Java 8
+    php:
+      stackName: 64bit Amazon Linux 2 v3.5.0 running PHP 8.1
     python:
       stackName: 64bit Amazon Linux 2018.03 v2.7.3 running Python 2.7
     python3:
@@ -340,46 +320,6 @@ Resources:
       - Namespace: aws:elasticbeanstalk:application:environment
         OptionName: AWS_REGION
         Value: !Ref AWS::Region
-
-          # ENVIRONMENT VARIABLES - NODE, RAILS - Move to parameter store
-      - Namespace: aws:elasticbeanstalk:application:environment
-        OptionName: DB_PASSWORD
-        Value: !Ref DatabasePassword
-
-      - Namespace: aws:elasticbeanstalk:application:environment
-        OptionName: DB_USER
-        Value:
-          Fn::ImportValue: !Sub ${DatabaseStackName}-DatabaseUser
-
-      - Namespace: aws:elasticbeanstalk:application:environment
-        OptionName: DB_NAME
-        Value: !Ref DatabaseName
-
-      - Namespace: aws:elasticbeanstalk:application:environment
-        OptionName: DB_HOST
-        Value:
-          Fn::ImportValue: !Sub "${DatabaseStackName}-DatabaseURL"
-
-      # ENVIRONMENT VARIABLES - SPRING
-      - Namespace: aws:elasticbeanstalk:application:environment
-        OptionName: spring.datasource.password
-        Value: !Ref DatabasePassword
-
-      - Namespace: aws:elasticbeanstalk:application:environment
-        OptionName: spring.datasource.username
-        Value:
-          Fn::ImportValue: !Sub "${DatabaseStackName}-DatabaseUser"
-
-      - Namespace: aws:elasticbeanstalk:application:environment
-        OptionName: spring.datasource.url
-        Value:
-          "Fn::Join":
-          - ''
-          - - 'jdbc:mysql://'
-            - !ImportValue
-                "Fn::Sub": "${DatabaseStackName}-DatabaseURL"
-            - ':3306/'
-            - Ref: DatabaseName
 
   # IAM resources
   AppRole:

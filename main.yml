@@ -2,14 +2,13 @@
 AWSTemplateFormatVersion: 2010-09-09
 
 
-Description: SASKV5 VPC + Bastion + Elastic Beanstalk + Database
+Description: SASKV5 VPC + Bastion + Elastic Beanstalk 
 
 
 Parameters:
 
   TemplateBucket:
     Type: String
-    Default: stack-bastion-eb-20221009 
     Description: The template bucket for the CloudFormation templates
 
   EnvironmentName:
@@ -25,11 +24,13 @@ Parameters:
   AvailabilityZone1:
     Description: The first availability zone in the region
     Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-northeast-2a
     ConstraintDescription: Must be a valid availability zone
 
   AvailabilityZone2:
     Description: The second availability zone in the region
     Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-northeast-2c
     ConstraintDescription: Must be a valid availability zone
 
   SSHFrom:
@@ -79,7 +80,7 @@ Parameters:
   StackType:
     Description: node, rails, python, python3 or spring.
     Type: String
-    Default: python
+    Default: php
     AllowedValues:
       - node
       - php
@@ -224,16 +225,12 @@ Conditions:
 
    IsProd: !Equals [ !Ref EnvironmentName, prod ]
 
-   IsAurora: !Or [ !Equals [ !Ref DatabaseEngine, aurora ], !Equals [ !Ref DatabaseEngine, aurora-postgresql ] ]
-
-   IsNotAurora: !Not [ Condition: IsAurora ]
-
 Resources:
 
   VpcStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/templates/vpc.cfn.yml
+      TemplateURL: https://rnd-cfn-repository-20221009.s3.ap-northeast-2.amazonaws.com/cfn-bastioin-eb/templates/vpc.cfn.yml 
       Parameters:
         AvailabilityZone1: !Ref AvailabilityZone1
         AvailabilityZone2: !Ref AvailabilityZone2
@@ -245,7 +242,7 @@ Resources:
   BastionStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/templates/bastion.cfn.yml
+      TemplateURL: https://rnd-cfn-repository-20221009.s3.ap-northeast-2.amazonaws.com/cfn-bastioin-eb/templates/bastion.cfn.yml 
       Parameters:
         NetworkStackName: !GetAtt VpcStack.Outputs.Name
         KeyName: !Ref KeyName
@@ -256,15 +253,12 @@ Resources:
   ElasticBeanstalkStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/templates/elastic-beanstalk.cfn.yml
+      TemplateURL: https://rnd-cfn-repository-20221009.s3.ap-northeast-2.amazonaws.com/cfn-bastioin-eb/templates/elastic-beanstalk.cfn.yml 
       Parameters:
         ApplicationName: !Ref AWS::StackName
         StackType: !Ref StackType
         EnvironmentName: !Ref EnvironmentName
         NetworkStackName: !GetAtt VpcStack.Outputs.Name
-        DatabaseStackName: !If [ IsAurora, !GetAtt AuroraStack.Outputs.Name, !GetAtt RdsStack.Outputs.Name ]
-        DatabaseName: !Ref DatabaseName
-        DatabasePassword: !Ref DatabasePassword
         AppS3Bucket: !Ref AppS3Bucket
         AppS3Key: !Ref AppS3Key
         EC2KeyPairName: !Ref EC2KeyPairName

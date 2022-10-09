@@ -5,8 +5,8 @@ AWSTemplateFormatVersion: 2010-09-09
 Description: SASKV5N VPC
 
 # This VPC stack should be created first before any other
-# CloudFormation stacks, such as a bastion stack, database
-# stack and application stack
+# CloudFormation stacks, such as a bastion stack, 
+# application stack
 Parameters:
 
   AvailabilityZone1:
@@ -513,12 +513,6 @@ Outputs:
     Value: !GetAtt BastionSecurityGroup.GroupId
     Export:
       Name: !Sub "${AWS::StackName}-BastionGroupID"
-
-  DatabaseSecurityGroup:
-    Description: Security group ID for RDS database
-    Value: !GetAtt DbSecurityGroup.GroupId
-    Export:
-      Name: !Sub "${AWS::StackName}-DatabaseGroupID"
 
   ELBIngressPort:
     Description: ELB ingress port
