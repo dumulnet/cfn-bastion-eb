@@ -99,7 +99,6 @@ Resources:
             - logs:DescribeLogStreams
             - logs:PutLogEvents
             Resource: !GetAtt BastionSecureLogGroup.Arn
-    DependsOn: BastionSecureLogGroup
 
   BastionInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -204,7 +203,7 @@ Resources:
                   files: /etc/awslogs/awslogs.conf
 
     Properties:
-      InstanceType: t2.micro
+      InstanceType: t3.micro
       KeyName: !Ref KeyName
       NetworkInterfaces:
         - NetworkInterfaceId: !Ref BastionNetworkInterface
@@ -236,9 +235,6 @@ Resources:
     Properties:
       AllocationId: !GetAtt BastionEip.AllocationId
       NetworkInterfaceId: !Ref BastionNetworkInterface
-    DependsOn:
-      - BastionEip
-      - BastionNetworkInterface
 
   BastionNetworkInterface:
     Type: AWS::EC2::NetworkInterface
@@ -253,6 +249,8 @@ Resources:
           Value: startup-kit-bastion
 
   BastionSecureLogGroup:
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
     Type: AWS::Logs::LogGroup
     Properties:
       RetentionInDays: !Ref LogRetentionInDays
