@@ -1,0 +1,286 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+
+
+Description: SASKV5 VPC + Bastion + Elastic Beanstalk 
+
+
+Parameters:
+
+  TemplateBucket:
+    Type: String
+    Description: The template bucket for the CloudFormation templates
+
+  EnvironmentName:
+    Type: String
+    Description: Environment name - dev or prod
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    ConstraintDescription: Specify either dev or prod
+
+  # vpc.cfn.yml parameters
+  AvailabilityZone1:
+    Description: The first availability zone in the region
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-northeast-2a
+    ConstraintDescription: Must be a valid availability zone
+
+  AvailabilityZone2:
+    Description: The second availability zone in the region
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: ap-northeast-2c
+    ConstraintDescription: Must be a valid availability zone
+
+  SSHFrom:
+    Description: Limit SSH access to bastion hosts to a CIDR IP block
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    Default: 0.0.0.0/0
+
+  ELBIngressPort:
+    Description: The ELB ingress port used by security groups
+    Type: Number
+    MinValue: 0
+    MaxValue: 65535
+    ConstraintDescription: TCP ports must be between 0 - 65535
+    Default: 80
+
+  AppIngressPort:
+    Description: The application ingress port used by security groups
+    Type: Number
+    MinValue: 0
+    MaxValue: 65535
+    ConstraintDescription: TCP ports must be between 0 - 65535
+    Default: 80
+
+  # bastion.cfn.yml parameters
+  KeyName:
+    Description: EC2 key pair name for bastion host SSH access
+    Type: AWS::EC2::KeyPair::KeyName
+
+  LogRetentionInDays:
+    Description: Number of days you would like your CloudWatch Logs to be retained
+    Type: Number
+    Default: 30
+
+  # For more information on the google-authenticator PAM module, see: https://github.com/google/google-authenticator-libpam
+  MFA:
+    Description: Set to true to install MFA using the google-authenticator PAM module on your bastion host
+    Type: String
+    ConstraintDescription: Value must be true or false
+    Default: false
+    AllowedValues:
+      - true
+      - false
+
+  # elastic-beanstalk.cfn.yml parameters
+  StackType:
+    Description: node, rails, python, python3 or spring.
+    Type: String
+    Default: php
+    AllowedValues:
+      - node
+      - php
+      - rails
+      - spring
+      - python
+      - python3
+    ConstraintDescription: Specify node, rails, python, python3 or spring.
+
+  AppS3Bucket:
+    Description: S3 Bucket containing your application package
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+
+  AppS3Key:
+    Description: S3 Bucket key for your application package
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+
+  EC2KeyPairName:
+    Description: EC2 key pair name for SSH access
+    Type: AWS::EC2::KeyPair::KeyName
+
+  EbInstanceType:
+    Description: The instance type for Elastic Beanstalk
+    Type: String
+    Default: t3.small
+    ConstraintDescription: Instance type not supported
+    AllowedValues:
+      - t3.small
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+      - r5dn.xlarge
+      - r5dn.2xlarge
+
+  SSLCertificateArn:
+    Description: The optional SSL/TLS certificate ARN
+    Type: String
+    MinLength: 0
+    MaxLength: 2048
+    Default: ""
+
+  AutoScalingMinInstanceCount:
+    Description: Minimum number of EC2 instances for Auto Scaling
+    Type: Number
+    MinValue: 1
+    MaxValue: 20
+    Default: 2
+    ConstraintDescription: Specify a number between 1 - 20
+
+  AutoScalingMaxInstanceCount:
+    Description: Maximum number of EC2 instances for Auto Scaling
+    Type: Number
+    MinValue: 1
+    MaxValue: 20
+    Default: 6
+    ConstraintDescription: Specify a number between 1 - 20
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Environment
+        Parameters:
+          - EnvironmentName
+      - Label:
+          default: Region Availability Zones
+        Parameters:
+          - AvailabilityZone1
+          - AvailabilityZone2
+      - Label:
+          default: Bastion
+        Parameters:
+          - KeyName
+          - LogRetentionInDays
+          - MFA
+          - SSHFrom
+      - Label:
+          default: Application Global
+        Parameters:
+          - AppIngressPort
+          - AppProtocol
+      - Label:
+          default: Elastic Beanstalk
+        Parameters:
+          - StackType
+          - EbInstanceType
+          - AppS3Bucket
+          - AppS3Key
+          - EC2KeyPairName
+          - AutoScalingMinInstanceCount
+          - AutoScalingMaxInstanceCount
+      - Label:
+          default: Load Balancer
+        Parameters:
+          - ELBIngressPort
+          - SSLCertificateArn
+    ParameterLabels:
+      AvailabilityZone1:
+        default: Availability Zone 1
+      AvailabilityZone2:
+        default: Availability Zone 2
+      ELBIngressPort:
+        default: Port
+      AppIngressPort:
+        default: Port
+      AppProtocol:
+        default: Protocol
+      KeyName:
+        default: EC2 Key Pair
+      LogRetentionInDays:
+        default: Log Retention
+      MFA:
+        default: Multi-Factor
+      SSHFrom:
+        default: SSH Whitelist
+      TemplateBucket:
+        default: CloudFormation Bucket
+      EnvironmentName:
+        default: Environment
+      SSLCertificateArn:
+        default: SSL Certificate
+      StackType:
+        default: Stack Type
+      EbInstanceType:
+        default: Instance Type
+      AppS3Bucket:
+        default: App S3 Bucket
+      AppS3Key:
+        default: App S3 Key
+      EC2KeyPairName:
+        default: EC2 Key Pair
+      AutoScalingMinInstanceCount:
+        default: Min Instances
+      AutoScalingMaxInstanceCount:
+        default: Max Instances
+
+Conditions:
+
+   IsProd: !Equals [ !Ref EnvironmentName, prod ]
+
+Resources:
+
+  VpcStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://${TemplateBucket}.s3.amazonaws.com/templates/vpc.cfn.yml 
+      Parameters:
+        AvailabilityZone1: !Ref AvailabilityZone1
+        AvailabilityZone2: !Ref AvailabilityZone2
+        SSHFrom: !Ref SSHFrom
+        ELBIngressPort: !Ref ELBIngressPort
+        AppIngressPort: !Ref AppIngressPort
+        SingleNatGateway: !If [ IsProd, false, true ]
+
+  BastionStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://${TemplateBucket}.s3.amazonaws.com/templates/bastion.cfn.yml 
+      Parameters:
+        NetworkStackName: !GetAtt VpcStack.Outputs.Name
+        KeyName: !Ref KeyName
+        LogRetentionInDays: !Ref LogRetentionInDays
+        MFA: !Ref MFA
+    DependsOn: VpcStack
+
+  ElasticBeanstalkStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://${TemplateBucket}.s3.amazonaws.com/templates/elastic-beanstalk.cfn.yml 
+      Parameters:
+        ApplicationName: !Ref AWS::StackName
+        StackType: !Ref StackType
+        EnvironmentName: !Ref EnvironmentName
+        NetworkStackName: !GetAtt VpcStack.Outputs.Name
+        AppS3Bucket: !Ref AppS3Bucket
+        AppS3Key: !Ref AppS3Key
+        EC2KeyPairName: !Ref EC2KeyPairName
+        DevInstanceType: !Ref EbInstanceType
+        ProdInstanceType: !Ref EbInstanceType
+        SSLCertificateArn: !Ref SSLCertificateArn
+        AutoScalingMinInstanceCount: !Ref AutoScalingMinInstanceCount
+        AutoScalingMaxInstanceCount: !Ref AutoScalingMaxInstanceCount
+
+
+Outputs:
+  VpcStackName:
+    Value: !GetAtt VpcStack.Outputs.Name
+    Export:
+      Name: !Sub ${AWS::StackName}-VpcStackName
+
+  BastionStackName:
+    Value: !GetAtt BastionStack.Outputs.Name
+    Export:
+      Name: !Sub ${AWS::StackName}-BastionStackName
+
+  ElasticBeanstalkStackName:
+    Value: !GetAtt ElasticBeanstalkStack.Outputs.Name
+    Export:
+      Name: !Sub ${AWS::StackName}-ElasticBeanstalkStack
