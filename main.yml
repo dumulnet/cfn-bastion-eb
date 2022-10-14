@@ -102,6 +102,12 @@ Parameters:
     MinLength: 1
     MaxLength: 255
 
+  NodeAppS3Key:
+    Description: S3 Bucket key for your application package
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+
   EC2KeyPairName:
     Description: EC2 key pair name for SSH access
     Type: AWS::EC2::KeyPair::KeyName
@@ -167,6 +173,19 @@ Parameters:
     Description: The JSON key name of the Secrets Manager value
     Default: PersonalAccessToken
 
+  RepositoryName:
+    Description: The name of your CodeCommit repo. Go to https://console.aws.amazon.com/codecommit.
+    Type: String
+    AllowedPattern: '[\x20-\x7E]*'
+    ConstraintDescription: Can contain only ASCII characters.
+
+  RepositoryBranch:
+    Description: The name of the branch for the CodeCommit repo
+    Type: String
+    Default: master
+    AllowedPattern: '[\x20-\x7E]*'
+    ConstraintDescription: Can contain only ASCII characters.
+
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -207,13 +226,18 @@ Metadata:
           - ELBIngressPort
           - SSLCertificateArn
       - Label:
-          default: CI/CD 
+          default: CI/CD for PHP 
         Parameters:
           - GitHubOwner
           - GitHubRepo
           - GitHubBranch
           - GitHubTokenSecretName
           - GitHubTokenSecretKeyName
+      - Label:
+          default: CI/CD for Node 
+        Parameters:
+          - RepositoryName
+          - RepositoryBranch
 
     ParameterLabels:
       AvailabilityZone1:
@@ -313,6 +337,28 @@ Resources:
         AutoScalingMinInstanceCount: !Ref AutoScalingMinInstanceCount
         AutoScalingMaxInstanceCount: !Ref AutoScalingMaxInstanceCount
 
+  SecondElasticBeanstalkStack:
+    UpdateReplacePolicy: Delete
+    DeletionPolicy: Delete
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://rnd-cfn-repository-20221009.s3.ap-northeast-2.amazonaws.com/cfn-bastioin-eb/templates/elastic-beanstalk-nodejs.cfn.yml 
+      Parameters:
+        ApplicationName:  !Sub ${AWS::StackName}-node
+        StackType: node
+        EnvironmentName: !Ref EnvironmentName
+        NetworkStackName: !GetAtt VpcStack.Outputs.Name
+        AppS3Bucket: !Ref AppS3Bucket
+        AppS3Key: !Ref NodeAppS3Key
+        EC2KeyPairName: !Ref EC2KeyPairName
+        ELBIngressPort: !Ref ELBIngressPort
+        DevInstanceType: !Ref EbInstanceType
+        ProdInstanceType: !Ref EbInstanceType
+        SSLCertificateArn: !Ref SSLCertificateArn
+        RepositoryName: !Ref RepositoryName
+        RepositoryBranch: !Ref RepositoryBranch
+        AutoScalingMinInstanceCount: !Ref AutoScalingMinInstanceCount
+        AutoScalingMaxInstanceCount: !Ref AutoScalingMaxInstanceCount
 
 Outputs:
   VpcStackName:

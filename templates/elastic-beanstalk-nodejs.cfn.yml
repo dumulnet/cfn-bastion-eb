@@ -1,0 +1,548 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description:  SASKV5N Elastic Beanstalk
+
+# App stack creation prerequisites:  first create a VPC stack, then a DB stack.
+
+Parameters:
+
+  RepositoryName:
+    Description: The name of your CodeCommit repo. Go to https://console.aws.amazon.com/codecommit.
+    Type: String
+    AllowedPattern: '[\x20-\x7E]*'
+    ConstraintDescription: Can contain only ASCII characters.
+
+  RepositoryBranch:
+    Description: The name of the branch for the CodeCommit repo
+    Type: String
+    Default: master
+    AllowedPattern: '[\x20-\x7E]*'
+    ConstraintDescription: Can contain only ASCII characters.
+
+  ApplicationName:
+    Description: Name of your application
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+
+  ELBIngressPort:
+    Description: The ELB ingress port used by security groups
+    Type: Number
+    MinValue: 0
+    MaxValue: 65535
+    ConstraintDescription: TCP ports must be between 0 - 65535
+    Default: 80
+
+  StackType:
+    Description: node, rails, python, python3 or spring
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedValues:
+      - node
+      - rails
+      - php
+      - spring
+      - python
+      - python3
+    ConstraintDescription: Specify node, rails, python, python3 or spring
+
+  EnvironmentName:
+    Description: Environment name, either dev or prod.
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedValues:
+      - dev
+      - prod
+    ConstraintDescription: Specify either dev or prod
+
+  NetworkStackName:
+    Description: Name of an active CloudFormation stack of networking resources
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+
+  AppS3Bucket:
+    Description: S3 Bucket containing your application package.
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+
+  AppS3Key:
+    Description: S3 Bucket key for your application package
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+
+  EC2KeyPairName:
+    Description: EC2 key pair name for SSH access
+    Type: AWS::EC2::KeyPair::KeyName
+
+  DevInstanceType:
+    Description: The instance type for the dev environment
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    Default: t2.micro
+
+  ProdInstanceType:
+    Description: The instance type for the prod environment
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    Default: t2.large
+
+  SSLCertificateArn:
+    Description: The SSL/TLS certificate ARN
+    Type: String
+    MinLength: 0
+    MaxLength: 2048
+    Default: ""
+
+  AutoScalingMinInstanceCount:
+    Description: Minimum number of EC2 instances for Auto Scaling
+    Type: Number
+    MinValue: 1
+    MaxValue: 20
+    Default: 2
+    ConstraintDescription: Specify a number between 1 - 20
+
+  AutoScalingMaxInstanceCount:
+    Description: Maximum number of EC2 instances for Auto Scaling
+    Type: Number
+    MinValue: 1
+    MaxValue: 20
+    Default: 6
+    ConstraintDescription: Specify a number between 1 - 20
+
+Conditions:
+
+  CreateProdEnv: !Equals [ !Ref EnvironmentName, prod ]
+
+  TlsEnabled: !Not [ !Equals [ !Ref SSLCertificateArn, "" ] ]
+
+Mappings:
+  # Maps stack type parameter to solution stack name string
+  StackMap:
+    node:
+      stackName: 64bit Amazon Linux 2 v5.6.0 running Node.js 16
+    rails:
+      stackName: 64bit Amazon Linux 2018.03 v2.8.3 running Ruby 2.4 (Puma)
+    spring:
+      stackName: 64bit Amazon Linux 2018.03 v3.0.3 running Tomcat 8 Java 8
+    php:
+      stackName: 64bit Amazon Linux 2 v3.5.0 running PHP 8.1
+    python:
+      stackName: 64bit Amazon Linux 2018.03 v2.7.3 running Python 2.7
+    python3:
+      stackName: 64bit Amazon Linux 2018.03 v2.7.3 running Python 3.6
+
+Resources:
+  MyRepo:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryName: !Ref RepositoryName 
+      RepositoryDescription: This is a repository for my project with code from MySourceCodeBucket.
+      Code:
+        BranchName: !Ref RepositoryBranch 
+        S3: 
+          Bucket: !Ref AppS3Bucket
+          Key: !Ref AppS3Key
+
+  ElasticBeanstalkServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument: |
+        {
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": { "Service": [ "elasticbeanstalk.amazonaws.com" ]},
+            "Action": [ "sts:AssumeRole" ]
+          }]
+        }
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSElasticBeanstalkEnhancedHealth
+        - arn:aws:iam::aws:policy/service-role/AWSElasticBeanstalkService
+
+  Application:
+    Type: AWS::ElasticBeanstalk::Application
+    Properties:
+      ApplicationName: !Ref ApplicationName
+
+  ApplicationVersion:
+    Type: AWS::ElasticBeanstalk::ApplicationVersion
+    Properties:
+      ApplicationName: !Ref Application
+      SourceBundle:
+        S3Bucket: !Ref AppS3Bucket
+        S3Key: !Ref AppS3Key
+
+  Environment:
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      EnvironmentName: !Sub "${ApplicationName}-${EnvironmentName}"
+      ApplicationName: !Ref Application
+      TemplateName: !Ref ConfigurationTemplate
+      VersionLabel: !Ref ApplicationVersion
+
+  # The configuration template contains environment parameters such as those
+  # that relate to the autoscaling group (e.g. size, triggers), placement of
+  # resources in the VPC, load balancer setup, and environment variables
+  ConfigurationTemplate:
+    Type: AWS::ElasticBeanstalk::ConfigurationTemplate
+    Properties:
+      ApplicationName: !Ref Application
+      SolutionStackName: !FindInMap [ StackMap, !Ref StackType, stackName ]
+      OptionSettings:
+
+      - Namespace: aws:elasticbeanstalk:environment
+        OptionName: EnvironmentType
+        Value: LoadBalanced
+
+      - Namespace: aws:elasticbeanstalk:environment
+        OptionName: LoadBalancerType
+        Value: application
+
+      - Namespace: aws:elasticbeanstalk:environment
+        OptionName: ServiceRole
+        Value: !Ref ElasticBeanstalkServiceRole
+
+        # AUTOSCALING OPTIONS
+      - Namespace: aws:autoscaling:asg
+        OptionName: MinSize
+        Value: !Ref AutoScalingMinInstanceCount
+
+      - Namespace: aws:autoscaling:asg
+        OptionName: MaxSize
+        Value: !Ref AutoScalingMaxInstanceCount
+
+      - Namespace: aws:autoscaling:launchconfiguration
+        OptionName: SecurityGroups
+        Value:
+          Fn::ImportValue: !Sub "${NetworkStackName}-AppSecurityGroupID"
+
+      - Namespace: aws:autoscaling:launchconfiguration
+        OptionName: SSHSourceRestriction
+        Value:
+          "Fn::Join":
+          - ','
+          - - 'tcp, 22, 22'
+            - !ImportValue
+                "Fn::Sub": "${NetworkStackName}-BastionGroupID"
+
+      - Namespace: aws:autoscaling:launchconfiguration
+        OptionName: InstanceType
+        Value: !If [ CreateProdEnv, !Ref ProdInstanceType, !Ref DevInstanceType ]
+
+      - Namespace: aws:autoscaling:launchconfiguration
+        OptionName: IamInstanceProfile
+        Value: !Ref AppInstanceProfile
+
+      - Namespace: aws:autoscaling:launchconfiguration
+        OptionName: EC2KeyName
+        Value: !Ref EC2KeyPairName
+
+      - Namespace: aws:autoscaling:updatepolicy:rollingupdate
+        OptionName: RollingUpdateEnabled
+        Value: true
+
+      - Namespace: aws:autoscaling:updatepolicy:rollingupdate
+        OptionName: RollingUpdateType
+        Value: Health
+
+      - Namespace: aws:autoscaling:trigger
+        OptionName: MeasureName
+        Value: CPUUtilization
+
+      - Namespace: aws:autoscaling:trigger
+        OptionName: Unit
+        Value: Percent
+
+      - Namespace: aws:autoscaling:trigger
+        OptionName: UpperThreshold
+        Value: 80
+
+      - Namespace: aws:autoscaling:trigger
+        OptionName: LowerThreshold
+        Value: 40
+
+        # VPC OPTIONS (PLACEMENT OF RESOURCES IN SUBNETS)
+      - Namespace: aws:ec2:vpc
+        OptionName: VPCId
+        Value:
+          Fn::ImportValue: !Sub "${NetworkStackName}-VpcID"
+
+      - Namespace: aws:ec2:vpc
+        OptionName: Subnets
+        Value:
+          "Fn::Join":
+          - ','
+          - - !ImportValue
+                "Fn::Sub": "${NetworkStackName}-PrivateSubnet1ID"
+            - !ImportValue
+                "Fn::Sub": "${NetworkStackName}-PrivateSubnet2ID"
+
+      - Namespace: aws:ec2:vpc
+        OptionName: ELBSubnets
+        Value:
+          "Fn::Join":
+          - ','
+          - - !ImportValue
+                "Fn::Sub": "${NetworkStackName}-PublicSubnet1ID"
+            - !ImportValue
+                "Fn::Sub": "${NetworkStackName}-PublicSubnet2ID"
+
+      - Namespace: aws:elbv2:listener:default
+        OptionName: ListenerEnabled
+        Value: !If [ TlsEnabled, false, true ]
+
+      - Namespace: aws:elbv2:loadbalancer
+        OptionName: SecurityGroups
+        Value:
+          Fn::ImportValue: !Sub "${NetworkStackName}-ELBSecurityGroupID"
+
+      - Namespace: aws:elbv2:loadbalancer
+        OptionName: ManagedSecurityGroup
+        Value:
+           Fn::ImportValue: !Sub "${NetworkStackName}-ELBSecurityGroupID"
+
+      - Namespace: aws:elbv2:listenerrule:default
+        OptionName: PathPatterns
+        Value: "/*"
+
+      - Namespace: !Sub
+        - "aws:elbv2:listener:${ListenPort}"
+        - ListenPort: !Ref ELBIngressPort
+        OptionName: Protocol
+        Value: !If [ TlsEnabled, HTTPS, HTTP ]
+
+      - Namespace: !Sub
+        - "aws:elbv2:listener:${ListenPort}"
+        - ListenPort: !Ref ELBIngressPort
+        OptionName: Rules
+        Value: default
+
+      - Namespace: !Sub
+        - "aws:elbv2:listener:${ListenPort}"
+        - ListenPort: !Ref ELBIngressPort
+        OptionName: SSLCertificateArns
+        Value: !Ref SSLCertificateArn
+
+        # CLOUDWATCH LOGS
+      - Namespace: aws:elasticbeanstalk:cloudwatch:logs
+        OptionName: StreamLogs
+        Value: true
+
+      - Namespace: aws:elasticbeanstalk:cloudwatch:logs
+        OptionName: DeleteOnTerminate
+        Value: true
+
+      # ENVIRONMENT VARIABLES - COMMON TO ALL STACKS
+      - Namespace: aws:elasticbeanstalk:application:environment
+        OptionName: AWS_REGION
+        Value: !Ref AWS::Region
+
+  # IAM resources
+  AppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+  AppPolicies:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: App
+      Roles:
+      - !Ref AppRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Action: "*"
+            Resource: "*"
+
+  AppInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+      - !Ref AppRole
+      
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+            - Effect: Allow
+              Principal:
+                  Service:
+                    - codepipeline.amazonaws.com
+              Action:
+                - sts:AssumeRole
+      Description: IAM Role for CodePipeline
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodePipeline_FullAccess
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AWSCodeCommitFullAccess
+        - arn:aws:iam::aws:policy/AWSCodeBuildAdminAccess
+        - arn:aws:iam::aws:policy/AmazonECS_FullAccess
+        - arn:aws:iam::aws:policy/AdministratorAccess-AWSElasticBeanstalk
+  # CodePipelineRole:
+  #   Type: AWS::IAM::Role
+  #   Properties:
+  #     AssumeRolePolicyDocument:
+  #       Statement:
+  #       - Effect: Allow
+  #         Principal:
+  #           Service:
+  #           - codepipeline.amazonaws.com
+  #         Action:
+  #         - sts:AssumeRole
+  #     Path: "/"
+  #     Policies:
+  #     - PolicyName: codepipeline-service
+  #       PolicyDocument:
+  #         Statement:
+  #         - Action:
+  #           - codecommit:GetBranch
+  #           - codecommit:GetCommit
+  #           - codecommit:UploadArchive
+  #           - codecommit:GetUploadArchiveStatus
+  #           - codecommit:CancelUploadArchive
+  #           Resource: "*"
+  #           Effect: Allow
+  #         - Action:
+  #           - s3:GetObject
+  #           - s3:GetObjectVersion
+  #           - s3:GetBucketVersioning
+  #           Resource: "*"
+  #           Effect: Allow
+  #         - Action:
+  #           - s3:PutObject
+  #           Resource:
+  #           - arn:aws:s3:::codepipeline*
+  #           - arn:aws:s3:::elasticbeanstalk*
+  #           Effect: Allow
+  #         - Action:
+  #           - codedeploy:CreateDeployment
+  #           - codedeploy:GetApplicationRevision
+  #           - codedeploy:GetDeployment
+  #           - codedeploy:GetDeploymentConfig
+  #           - codedeploy:RegisterApplicationRevision
+  #           Resource: "*"
+  #           Effect: Allow
+  #         - Action:
+  #           - elasticbeanstalk:*
+  #           - ec2:*
+  #           - elasticloadbalancing:*
+  #           - autoscaling:*
+  #           - cloudwatch:*
+  #           - s3:*
+  #           - sns:*
+  #           - cloudformation:*
+  #           - rds:*
+  #           - sqs:*
+  #           - ecs:*
+  #           - iam:PassRole
+  #           Resource: "*"
+  #           Effect: Allow
+  #         - Action:
+  #           - lambda:InvokeFunction
+  #           - lambda:ListFunctions
+  #           Resource: "*"
+  #           Effect: Allow
+  #         Version: '2012-10-17'
+
+  ArtifactBucket:
+    UpdateReplacePolicy: Delete 
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+
+  CodePipelineStack:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn:
+        Fn::Join:
+        - ''
+        - - 'arn:aws:iam::'
+          - Ref: AWS::AccountId
+          - ":role/"
+          - Ref: CodePipelineRole
+      Stages:
+      - Name: Source
+        Actions:
+        - InputArtifacts: []
+          Name: Source
+          ActionTypeId:
+            Category: Source
+            Owner: AWS
+            Version: '1'
+            Provider: CodeCommit
+          OutputArtifacts:
+            - Name: SourceArtifact
+          Configuration:
+            BranchName: !Ref 'RepositoryBranch'
+            RepositoryName: !Ref 'RepositoryName'
+          RunOrder: 1
+
+      - Name: Deploy
+        Actions:
+        - InputArtifacts:
+          - Name: SourceArtifact
+          Name: EbApp
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Version: '1'
+            Provider: ElasticBeanstalk
+          OutputArtifacts: []
+          Configuration:
+            ApplicationName: !Ref Application
+            EnvironmentName: !Ref Environment
+          RunOrder: 1
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+
+
+Outputs:
+
+  Name:
+    Description: Elastic Beanstalk Stack Name
+    Value: !Ref AWS::StackName
+    Export:
+      Name: !Sub ${AWS::StackName}-Name
+
+  EnvironmentURL:
+    Description: Environment URL
+    Value: !GetAtt Environment.EndpointURL
+    Export:
+      Name: !Sub "${AWS::StackName}-EnvironmentURL"
+
+  EnvironmentName:
+    Description: Environment Name
+    Value: !Sub "${ApplicationName}-${EnvironmentName}"
+    Export:
+      Name: !Sub "${AWS::StackName}-EnvironmentName"
+
+  TypeOfStack:
+    Description: Stack type
+    Value: !Ref StackType
+    Export:
+      Name: !Sub "${AWS::StackName}-TypeOfStack"
